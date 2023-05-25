@@ -1,9 +1,23 @@
 pipeline {
   agent any
   stages {
-    stage('Docker Build') {
+    stage('Build') {
       steps {
         sh "docker build -t kaedemo/podinfo:${env.BUILD_NUMBER} ."
+      }
+    }
+    stage('Test'){
+       steps {
+        sh "echo 'Test'"
+      }
+    }
+    stage('Security scan'){
+      steps {
+        withCredentials([string(credentialsId: 'snyk-api-token', variable: 'snykToken')]){
+        sh "snyk auth ${snykToken}"
+        sh "snyk test"
+        sh "snyk monitor --all-projects"
+        }
       }
     }
     stage('Docker Push') {
@@ -14,8 +28,20 @@ pipeline {
         }
       }
     }
+    stage('Docker Remove Image') {
+      steps {
+        sh "docker rmi kaedemo/podinfo:${env.BUILD_NUMBER}"
+      }
+    }
+    stage('Deploy') {
+      steps {
+          withKubeConfig([credentialsId: 'kubeconfig']) {
+          sh 'cat deployment.yaml | sed "s/{{BUILD_NUMBER}}/$BUILD_NUMBER/g" | kubectl apply -f -'
+          sh 'kubectl apply -f service.yaml'
+        }
+      }
   }
-}  
+}
 post {
     success {
       slackSend(message: "Pipeline is successfully completed.")
@@ -24,4 +50,4 @@ post {
       slackSend(message: "Pipeline failed. Please check the logs.")
     }
 }
-
+}
